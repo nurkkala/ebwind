@@ -1,25 +1,44 @@
+#!/usr/bin/env python
+
 from urllib import urlencode
 from urllib2 import urlopen
 import json
+import logging
 
 from windstream.models import *
 
-# Earliest date (for Matthews) is 2012-11-29.
+logger = logging.getLogger('ebwind.retrieve')
 
-def open_url(install_id):
+def open_url(install_id, start_timestamp):
     url = 'http://ds.windstream-inc.com/WSData/api/performancedata.json'
     params = { 'installid': install_id,
                'timezone': 'utc',
-               'start': '2012-11-30 00:00',
-               'span': '1day'
+               'start': start_timestamp
     }
-
     full_url = "{}?{}".format(url, urlencode(params))
     return urlopen(full_url)
 
 def retrieve_data(mill):
-    print "Retrieving {}".format(mill)
-    raw = open_url(mill.install_id).read().decode('utf-8-sig')
+    """Retrieve data saved since the most recent retrieval.
+
+    If no data have been retrieved, go back to the earliest-known time at which data were
+    gathered and retrieve everything.
+
+    """
+    start_timestamp = None
+    try:
+        latest_sample = TurboMillSample.objects.order_by('-time_stamp')[0]
+        logger.debug("Latest sample at %s", latest_sample)
+        start_timestamp = latest_sample.time_stamp.strftime("%Y-%m-%d %H:%M:30")
+    except TurboMillSample.DoesNotExist:
+        logger.debug("No sample for %s", mill)
+        # N.B., earliest date (for Matthews Community Center) is 2012-11-29.
+        start_timestamp = '2012-11-29 00:00'
+    logger.info("Retrieving %s at %s", mill, start_timestamp)
+
+    # The feed prefixes the JSON data with a Unicode Byte Order Mark. This decoding
+    # removes the mark.
+    raw = open_url(mill.install_id, start_timestamp).read().decode('utf-8-sig')
     data = json.loads(raw)
 
     num_added = num_duped = 0
@@ -27,10 +46,10 @@ def retrieve_data(mill):
     for datum in data:
         try:
             sample = TurboMillSample.objects.get(location=mill, time_stamp=datum['TimeStamp'])
-            print "ALREADY HAVE", sample.location, sample.time_stamp
+            logger.debug("ALREADY HAVE %s %s", sample.location, sample.time_stamp)
             num_duped += 1
         except TurboMillSample.DoesNotExist:
-            print "ADDING", mill, datum['TimeStamp']
+            logger.debug("ADDING %s %s", mill, datum['TimeStamp'])
             TurboMillSample.objects.create(location=mill,
                                            time_stamp = datum['TimeStamp'],
                                            joules     = datum['Joules'],
@@ -46,8 +65,7 @@ def retrieve_data(mill):
                                            dir_ang    = datum['DirAng'],
                                            dir_cos    = datum['DirCos'])
             num_added += 1
-    print "Added {}, Duped {}".format(num_added, num_duped)
-
+    logger.info("ADDED %d, DUPED %d", num_added, num_duped)
 
 def retrieve():
     for mill in TurboMillLocation.objects.all():
