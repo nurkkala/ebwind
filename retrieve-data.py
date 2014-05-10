@@ -15,9 +15,14 @@ HOURS_PER_QUERY = 4
 
 logger = logging.getLogger('ebwind.retrieve')
 
-def open_url(install_id, start_timestamp):
+def open_url(mill, start_timestamp):
+    """Open the url for a given mill.
+
+    Will grab HOURS_PER_QUERY samples beginning at the last retrieved time.
+
+    """
     url = 'http://ds.windstream-inc.com/WSData/api/performancedata.json'
-    params = { 'installid': install_id,
+    params = { 'installid': mill.install_id,
                'timezone': 'utc',
                'start': start_timestamp.strftime("%Y-%m-%d %H:%M"),
                'span': "{}hours".format(HOURS_PER_QUERY)
@@ -52,7 +57,7 @@ def retrieve_data(mill):
         # The JSON feed prefixes thedata with a Unicode Byte Order Mark (BOM). This
         # decoding removes the mark.
         logger.info("Retrieving %s from %s", mill, start_timestamp)
-        raw = open_url(mill.install_id, start_timestamp).read().decode('utf-8-sig')
+        raw = open_url(mill, start_timestamp).read().decode('utf-8-sig')
         data = json.loads(raw)
 
         for datum in data:
